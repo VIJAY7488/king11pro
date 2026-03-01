@@ -32,6 +32,17 @@ export class UserController {
             data: { tokens },
         });
     });
+
+
+    // ── Profile ───────────────────────────────────────────────────────────────
+
+    getProfile = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+        const profile = await usersService.getProfile(req.user!.id);
+        res.status(200).json({
+            status: 'success',
+            data: { user: profile },
+        })
+    });
 };
 
 export default new UserController;

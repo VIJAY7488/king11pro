@@ -89,6 +89,15 @@ export class UserService {
 
         return signTokens(user);
     };
+
+
+    // ── Profile ───────────────────────────────────────────────────────────────
+
+    async getProfile(userId: string): Promise<UserPublicProfile> {
+        const user = await User.findById(userId);
+        if (!user) throw new AppError('User not found.', 404);
+        return toPublicProfile(user);
+    };
 };
 
 export default new UserService;
