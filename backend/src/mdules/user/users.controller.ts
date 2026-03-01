@@ -12,7 +12,16 @@ export class UserController {
             message: 'Account created successfully.',
             data: result,
         });
-    })
+    });
+
+    login = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+        const result = await usersService.login(req.body);
+        res.status(200).json({
+            status: 'success',
+            message: 'Login successful.',
+            data: result,
+        });
+    });
 };
 
 export default new UserController;

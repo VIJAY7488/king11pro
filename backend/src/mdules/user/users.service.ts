@@ -1,7 +1,7 @@
 import jwt from 'jsonwebtoken';
 import AppError from "../../utils/AppError";
 import User, { IUser } from "./users.model";
-import { AuthResponse, AuthTokens, JwtPayload, RegisterDTO, UserPublicProfile } from "./users.types";
+import { AuthResponse, AuthTokens, JwtPayload, LoginDTO, RegisterDTO, UserPublicProfile } from "./users.types";
 import config from '../../config/env';
 
 
@@ -56,7 +56,22 @@ export class UserService {
 
         const tokens = signTokens(user);
         return { user: toPublicProfile(user), tokens };
-    }
+    };
+
+    async login(dto: LoginDTO): Promise<AuthResponse> {
+        const user = await User.findByMobile(dto.mobileNumber);
+
+        if (!user || !(await user.comparePassword(dto.password))){
+            throw new AppError('Invalid mobile number or password.', 401);
+        };
+
+        if (!user.isActive) {
+            throw new AppError('Your account has been deactivated. Please contact support.', 403);
+        };
+
+        const tokens = signTokens(user);
+        return { user: toPublicProfile(user), tokens };
+    };
 };
 
 export default new UserService;
