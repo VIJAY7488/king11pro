@@ -43,6 +43,15 @@ export class UserController {
             data: { user: profile },
         })
     });
+
+    updateProfile = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+        const updated = await usersService.updateProfile(req.user!.id, req.body);
+        res.status(200).json({
+            status: 'success',
+            message: 'Profile updated.',
+            data: { user: updated },
+        })
+    });
 };
 
 export default new UserController;

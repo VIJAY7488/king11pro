@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { loginSchema, refreshTokenSchema, registerSchema } from "./users.validator";
+import { loginSchema, refreshTokenSchema, registerSchema, updateProfileSchema } from "./users.validator";
 import usersController from "./users.controller";
 import validate from "../../middlewares/validate.middleware";
 import authenticate from "../../middlewares/authenticate.middleware";
@@ -16,4 +16,5 @@ router.post('/refresh',  validate(refreshTokenSchema), usersController.refreshTo
 router.use(authenticate);
 
 router.get('/me', usersController.getProfile);
+router.patch('/me',  validate(updateProfileSchema), usersController.updateProfile);
 export default router;

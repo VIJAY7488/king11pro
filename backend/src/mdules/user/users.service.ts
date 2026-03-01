@@ -1,7 +1,7 @@
 import jwt from 'jsonwebtoken';
 import AppError from "../../utils/AppError";
 import User, { IUser } from "./users.model";
-import { AuthResponse, AuthTokens, JwtPayload, LoginDTO, RegisterDTO, UserPublicProfile } from "./users.types";
+import { AuthResponse, AuthTokens, JwtPayload, LoginDTO, RegisterDTO, UpdateProfileDTO, UserPublicProfile } from "./users.types";
 import config from '../../config/env';
 
 
@@ -98,6 +98,21 @@ export class UserService {
         if (!user) throw new AppError('User not found.', 404);
         return toPublicProfile(user);
     };
+
+    async updateProfile(userId: string, dto: UpdateProfileDTO): Promise<UserPublicProfile> {
+        if (Object.keys(dto).length === 0) {
+            throw new AppError('No update fields provided.', 400);
+        }
+
+        const user = await User.findByIdAndUpdate(
+            userId,
+            { $set: dto },
+            { new: true, runValidators: true }
+        );
+
+        if (!user) throw new AppError('User not found.', 404);
+        return toPublicProfile(user);
+    }
 };
 
 export default new UserService;
