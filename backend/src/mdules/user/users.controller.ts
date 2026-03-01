@@ -52,6 +52,14 @@ export class UserController {
             data: { user: updated },
         })
     });
+
+    changePassword = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+        await usersService.changePassword(req.user!.id, req.body);
+        res.status(200).json({
+            status: 'success',
+            message: 'Password changed successfully.',
+        })
+    });
 };
 
 export default new UserController;

@@ -1,7 +1,7 @@
 import jwt from 'jsonwebtoken';
 import AppError from "../../utils/AppError";
 import User, { IUser } from "./users.model";
-import { AuthResponse, AuthTokens, JwtPayload, LoginDTO, RegisterDTO, UpdateProfileDTO, UserPublicProfile } from "./users.types";
+import { AuthResponse, AuthTokens, ChangePasswordDTO, JwtPayload, LoginDTO, RegisterDTO, UpdateProfileDTO, UserPublicProfile } from "./users.types";
 import config from '../../config/env';
 
 
@@ -112,7 +112,22 @@ export class UserService {
 
         if (!user) throw new AppError('User not found.', 404);
         return toPublicProfile(user);
-    }
+    };
+
+    async changePassword(userId: string, dto: ChangePasswordDTO): Promise<void> {
+        const user = await User.findById(userId).select('+password');
+        if (!user) throw new AppError('User not found.', 404);
+
+        const isMatch = await user.comparePassword(dto.currentPassword);
+        if (!isMatch) throw new AppError('Current password is incorrect.', 400);
+
+        if (dto.currentPassword === dto.newPassword) {
+            throw new AppError('New password must differ from the current password.', 400);
+        }
+
+        user.password = dto.newPassword; // re-hashed via pre-save hook
+        await user.save();
+    };
 };
 
 export default new UserService;
