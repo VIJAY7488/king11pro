@@ -1,4 +1,4 @@
-import Joi from "joi";\
+import Joi from "joi";
 
 const mobileNumber = Joi.string()
     .pattern(/^\+?[1-9]\d{6,14}$/)

@@ -12,10 +12,10 @@ const config = {
 
 
     // JWT
-    jwtSecret: process.env.JWT_SECRET,
-    jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '7d',
+    jwtSecret: process.env.JWT_SECRET ?? "asdfghkoiuytgfwfgrhth",
+    jwtExpiresIn: (process.env.JWT_EXPIRES_IN ?? '7d') as string,
     jwtRefreshSecret: process.env.JWT_REFRESH_SECRET ?? 'refresh_change_me_in_production',
-    jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN ?? '30d',
+    jwtRefreshExpiresIn: (process.env.JWT_REFRESH_EXPIRES_IN ?? '30d') as string,
 } as const;
 
 export default config;

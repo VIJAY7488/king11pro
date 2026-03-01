@@ -1,11 +1,14 @@
-import { Document, model, Schema } from "mongoose";
+import { Document, Model, model, Schema, Types } from "mongoose";
+import bcrypt from 'bcrypt';
 
 
 
 
 // ── Interface ────────────────────────────────────────────────────────────────
 export interface IUser extends Document {
+    id: Types.ObjectId
     name: string;
+    role: string;
     mobileNumber: string;
     telegramUsername?: string;
     password: string;
@@ -15,8 +18,13 @@ export interface IUser extends Document {
     updatedAt: Date;
 
     // Instance methods
-
+    comparePassword(candidatePassword: string): Promise<boolean>;
 };
+
+// Statics interface
+export interface IUserModel extends Model<IUser> {
+    findByMobile(mobileNumber: string): Promise<IUser | null>;
+}
 
 // ── Schema ───────────────────────────────────────────────────────────────────
 const userSchema = new Schema<IUser>({
@@ -24,8 +32,14 @@ const userSchema = new Schema<IUser>({
         type: String,
         required: [true, 'Name is required'],
         trim: true,
-        minlength: [3, 'Name must be at least 2 characters'],
-        maxlength: [30, 'Name cannot exceed 100 characters'],
+        minlength: [3, 'Name must be at least 3 characters'],
+        maxlength: [30, 'Name cannot exceed 30 characters'],
+    },
+
+    role: {
+        type: String,
+        enum: ['user', 'admin'],
+        default: 'user',
     },
 
     mobileNumber: {
@@ -47,7 +61,7 @@ const userSchema = new Schema<IUser>({
     password: {
         type: String,
         required: [true, 'Password is required'],
-        minlength: [6, 'Password must be at least 8 characters'],
+        minlength: [6, 'Password must be at least 6 characters'],
         select: false, // never returned in queries unless explicitly requested
     },
 
@@ -65,16 +79,47 @@ const userSchema = new Schema<IUser>({
 }, {
     timestamps: true,           // auto-manages createdAt / updatedAt
     versionKey: false,          // removes __v field
+    toJSON: {
+      virtuals: true,
+      transform(_doc, ret) {
+        delete ret.password;    // extra safety — never leak hash via toJSON
+        return ret;
+      },
+    },
 });
 
 
 // ── Indexes ──────────────────────────────────────────────────────────────────
-userSchema.index({ mobileNumber: 1 });
 userSchema.index({ telegramUsername: 1 }, { sparse: true });
 userSchema.index({ createdAt: -1 });
 
 
+// ── Pre-save Hook: hash password ─────────────────────────────────────────────
+userSchema.pre<IUser>('save', async function () {
+    if (!this.isModified('password')) return;
+
+    const SALTS_ROUND = 12;
+    this.password = await bcrypt.hash(this.password, SALTS_ROUND);
+});
+
+
+// ── Instance Method: comparePassword ────────────────────────────────────────
+userSchema.methods.comparePassword = async function (
+    candidatePassword: string
+): Promise<boolean> {
+    return bcrypt.compare(candidatePassword, this.password);
+};
+
+
+// ── Static Method: findByMobile ───────────────────────────────────────────────
+userSchema.statics.findByMobile = function (
+    mobileNumber: string
+): Promise<IUser | null> {
+    return this.findOne({ mobileNumber }).select('+password');
+};
+
+
 
 // ── Model ────────────────────────────────────────────────────────────────────
-const User = model<IUser>('User', userSchema);
+const User = model<IUser, IUserModel>('User', userSchema);
 export default User;
