@@ -53,7 +53,6 @@ export interface TransactionRecord {
     amount: number;
     balanceBefore: number;
     balanceAfter: number;
-    description: string;
     referenceId?: string;
     metadata?: Record<string, unknown>;
     createdAt: Date;
