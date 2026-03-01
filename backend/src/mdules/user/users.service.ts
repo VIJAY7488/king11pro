@@ -72,6 +72,23 @@ export class UserService {
         const tokens = signTokens(user);
         return { user: toPublicProfile(user), tokens };
     };
+
+    async refreshTokens(refreshToken: string): Promise<AuthTokens> {
+        let payload: JwtPayload;
+
+        try {
+            payload = jwt.verify(refreshToken, config.jwtRefreshSecret) as JwtPayload;
+        } catch  {
+            throw new AppError('Invalid or expired refresh token.', 401);
+        }
+
+        const user = await User.findById(payload.sub);
+        if (!user || !user.isActive) {
+            throw new AppError('User not found or deactivated.', 401);
+        };
+
+        return signTokens(user);
+    };
 };
 
 export default new UserService;

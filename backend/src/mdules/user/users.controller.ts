@@ -22,6 +22,16 @@ export class UserController {
             data: result,
         });
     });
+
+    refreshTokens = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+        const { refreshToken } = req.body;
+        const tokens = await usersService.refreshTokens(refreshToken);
+        res.status(200).json({
+            status: 'success',
+            message: 'Tokens refreshed.',
+            data: { tokens },
+        });
+    });
 };
 
 export default new UserController;
