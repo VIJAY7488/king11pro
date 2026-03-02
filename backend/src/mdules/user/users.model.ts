@@ -2,13 +2,19 @@ import { Document, Model, model, Schema, Types } from "mongoose";
 import bcrypt from 'bcrypt';
 
 
+// ── Enums ─────────────────────────────────────────────────────────────────────
+
+export enum UserRole {
+    USER  = 'USER',
+    ADMIN = 'ADMIN',
+}
 
 
 // ── Interface ────────────────────────────────────────────────────────────────
 export interface IUser extends Document {
     id: Types.ObjectId
     name: string;
-    role: string;
+    role: UserRole;
     mobileNumber: string;
     telegramUsername?: string;
     password: string;
@@ -36,10 +42,11 @@ const userSchema = new Schema<IUser>({
         maxlength: [30, 'Name cannot exceed 30 characters'],
     },
 
+    // Role is NEVER sent by the client — set only by backend/DB directly
     role: {
         type: String,
-        enum: ['user', 'admin'],
-        default: 'user',
+        enum: Object.values(UserRole),
+        default: UserRole.USER,
     },
 
     mobileNumber: {
