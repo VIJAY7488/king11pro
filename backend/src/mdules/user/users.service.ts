@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import AppError from "../../utils/AppError";
-import User, { IUser } from "./users.model";
+import User, { IUser, UserRole } from "./users.model";
 import { AuthResponse, AuthTokens, ChangePasswordDTO, JwtPayload, LoginDTO, RegisterDTO, UpdateProfileDTO, UserPublicProfile } from "./users.types";
 import config from '../../config/env';
 
@@ -11,6 +11,7 @@ const signTokens = (user: IUser): AuthTokens => {
     const payload: JwtPayload = {
         sub: user._id.toString(),
         mobile: user.mobileNumber,
+        role: user.role,
     };
 
     const accessToken = jwt.sign(payload, config.jwtSecret, {
@@ -31,6 +32,7 @@ const toPublicProfile = (user: IUser): UserPublicProfile => ({
     name: user.name,
     mobileNumber: user.mobileNumber,
     telegramUsername: user.telegramUsername,
+    role: user.role,
     walletBalance: user.walletBalance,
     isActive: user.isActive,
     createdAt: user.createdAt,
@@ -51,7 +53,8 @@ export class UserService {
             name: dto.name,
             mobileNumber: dto.mobileNumber,
             telegramUsername: dto.telegramUsername,
-            password: dto.password  // hashed via pre-save hook
+            password: dto.password, // hashed via pre-save hook
+            role: UserRole.USER
         });
 
         const tokens = signTokens(user);

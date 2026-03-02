@@ -1,3 +1,5 @@
+import { UserRole } from "./users.model";
+
 // ── Request DTOs ─────────────────────────────────────────────────────────────
 export interface RegisterDTO {
     name: string;
@@ -28,6 +30,7 @@ export interface UserPublicProfile {
   name: string;
   mobileNumber: string;
   telegramUsername?: string;
+  role: UserRole;
   walletBalance: number;
   isActive: boolean;
   createdAt: Date;
@@ -48,6 +51,7 @@ export interface AuthResponse {
 export interface JwtPayload {
   sub: string;       // user._id as string
   mobile: string;
+  role: UserRole;
   iat?: number;
   exp?: number;
 };
@@ -60,6 +64,7 @@ declare global {
       user?: {
         id: string;
         mobile: string;
+        role: UserRole;
       };
     }
   }
