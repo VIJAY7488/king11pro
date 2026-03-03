@@ -30,10 +30,6 @@ export interface IContest extends Document {
     cancelledAt: Date | null;
     cancelReason: string | null;
 
-    // ── Audit ──────────────────────────────────────────────────────────────────
-    createdBy: Types.ObjectId;
-    cancelledBy: Types.ObjectId | null;
-
     // ── Meta ───────────────────────────────────────────────────────────────────
     description?: string;
     createdAt: Date;

@@ -103,10 +103,6 @@ export interface ContestPublic {
   cancelledAt?: Date | null;
   cancelReason?: string | null;
 
-  // Audit
-  createdBy: string;
-  cancelledBy?: string | null;
-
   createdAt: Date;
   updatedAt: Date;
 }
