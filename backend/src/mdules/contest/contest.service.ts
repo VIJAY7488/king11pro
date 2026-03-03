@@ -1,55 +1,52 @@
-
-
+import mongoose, { ClientSession, Types } from "mongoose";
+import { calcFinancials, Contest, IContest } from "./contest.model";
+import { ContestPublic, ContestStatus, CreateContestDTO, PLATFORM_FEE_PERCENT } from "./contest.types";
+import AppError from "../../utils/AppError";
 
 
 // ── Shape Mappers ─────────────────────────────────────────────────────────────
 
-import mongoose, { ClientSession, Types } from "mongoose";
-import { Contest, ContestEntry, IContest, IContestEntry } from "./contest.model";
-import { ContestEntryPublic, ContestPublic, ContestStatus, CreateContestDTO, EntryStatus, JoinContestDTO, JoinContestResult } from "./contest.types";
-import AppError from "../../utils/AppError";
-import Transaction from "../wallet/wallet.model";
-import User from "../user/users.model";
-import { TransactionStatus, TransactionType } from "../wallet/wallet.types";
-
 const toContestPublic = (doc: IContest): ContestPublic => ({
   id: (doc._id as Types.ObjectId).toString(),
-  matchId: doc.matchId.toString(),
+  matchId: doc.matchId,
   name: doc.name,
   contestType: doc.contestType,
+
+  // Financial
   entryFee: doc.entryFee,
+  prizePool: doc.prizePool,
+  platformFee: doc.platformFee,
+  platformFeePercent: PLATFORM_FEE_PERCENT,
+  totalCollection: doc.totalCollection,
   totalSpots: doc.totalSpots,
   filledSpots: doc.filledSpots,
-  availableSpots: doc.totalSpots - doc.filledSpots,
-  prizePool: doc.prizePool,
-  status: doc.status,
+  availableSpots: Math.max(0, doc.totalSpots - doc.filledSpots),
+  fillPercentage: doc.totalSpots > 0
+    ? Math.min(100, Math.round((doc.filledSpots / doc.totalSpots) * 100))
+    : 0,
+
   maxEntriesPerUser: doc.maxEntriesPerUser,
-  createdAt: doc.createdAt,
-});
-
-
-const toEntryPublic = (doc: IContestEntry): ContestEntryPublic => ({
-  id: (doc._id as Types.ObjectId).toString(),
-  contestId: doc.contestId.toString(),
-  userId: doc.userId.toString(),
-  teamId: doc.teamId,
+  isGuaranteed: doc.isGuaranteed,
   status: doc.status,
-  entryFee: doc.entryFee,
-  transactionId: doc.transactionId,
-  rank: doc.rank,
-  prizeWon: doc.prizeWon,
-  joinedAt: doc.joinedAt,
+  description: doc.description,
+
+  closedAt: doc.closedAt ?? null,
+  completedAt: doc.completedAt ?? null,
+  cancelledAt: doc.cancelledAt ?? null,
+  cancelReason: doc.cancelReason ?? null,
+
+  createdAt: doc.createdAt,
+  updatedAt: doc.updatedAt,
 });
 
 // ── Transaction Utility ───────────────────────────────────────────────────────
+
 const withTransaction = async <T>(fn: (session: ClientSession) => Promise<T>): Promise<T> => {
   const session = await mongoose.startSession();
-
   session.startTransaction({
     readConcern: { level: 'snapshot' },
     writeConcern: { w: 'majority' },
   });
-
   try {
     const result = await fn(session);
     await session.commitTransaction();
@@ -62,122 +59,70 @@ const withTransaction = async <T>(fn: (session: ClientSession) => Promise<T>): P
   }
 };
 
+// ── Status Transition Table ───────────────────────────────────────────────────
+
+const ALLOWED_TRANSITIONS: Record<ContestStatus, ContestStatus[]> = {
+  [ContestStatus.DRAFT]:     [ContestStatus.OPEN, ContestStatus.CANCELLED],
+  [ContestStatus.OPEN]:      [ContestStatus.CLOSED, ContestStatus.CANCELLED, ContestStatus.DRAFT],
+  [ContestStatus.FULL]:      [ContestStatus.CLOSED, ContestStatus.CANCELLED],
+  [ContestStatus.CLOSED]:    [ContestStatus.COMPLETED, ContestStatus.CANCELLED],
+  [ContestStatus.COMPLETED]: [],
+  [ContestStatus.CANCELLED]: [],
+};
 
 
-// ── Service ───────────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+// SERVICE
+// ═════════════════════════════════════════════════════════════════════════════
+
 export class ContestService {
 
-  // ── Admin: Create Contest ──────────────────────────────────────────────────
-
+  // ── ADMIN: Create Contest ──────────────────────────────────────────────────
+  /**
+   * Admin provides: matchId, name, contestType, entryFee, prizePool.
+   *
+   * Auto-calculated and stored:
+   *   platformFee    = prizePool × 20%
+   *   totalCollection = prizePool + platformFee
+   *   totalSpots     = floor(totalCollection / entryFee)
+   *
+   * Example: prizePool=30000, entryFee=50
+   *   platformFee = 6000, totalCollection = 36000, totalSpots = 720
+   *
+   * Default status is DRAFT — admin must explicitly set OPEN to make it visible.
+   */
   async createContest(dto: CreateContestDTO): Promise<ContestPublic> {
-    
+    // Pre-validate that the calculated totalSpots would be ≥ 2
+    const { totalSpots } =
+      calcFinancials(dto.prizePool, dto.entryFee);
+
+    if (totalSpots < 2) {
+      throw new AppError(
+        `With prizePool ₹${dto.prizePool} and entryFee ₹${dto.entryFee}, ` +
+        `totalSpots would be ${totalSpots}. ` +
+        `Contest needs at least 2 spots. Increase prizePool or decrease entryFee.`,
+        422
+      );
+    }
+
     const contest = await Contest.create({
       matchId: dto.matchId,
       name: dto.name,
       contestType: dto.contestType,
       entryFee: dto.entryFee,
-      totalSpots: dto.totalSpots,
       prizePool: dto.prizePool,
+      // platformFee, totalCollection, totalSpots written by pre-save hook
       maxEntriesPerUser: dto.maxEntriesPerUser ?? 1,
-      status: ContestStatus.OPEN,
+      isGuaranteed: dto.isGuaranteed ?? false,
+      description: dto.description,
+      status: dto.status ?? ContestStatus.DRAFT,
+      closedAt: dto.closedAt ?? null,
+      completedAt: dto.completedAt ?? null,
     });
 
     return toContestPublic(contest);
-  };
-
-
-  // ── Join Contest — the core operation ─────────────────────────────────────
-  /**
-  * Atomically:
-  *   1. Validates contest is OPEN and has capacity
-  *   2. Checks user hasn't exceeded maxEntriesPerUser
-  *   3. Deducts entry fee from user's wallet (atomic $inc with balance guard)
-  *   4. Records the wallet Transaction ledger entry
-  *   5. Increments contest.filledSpots (atomic $inc — race-safe)
-  *   6. Auto-closes contest if now full
-  *   7. Creates the ContestEntry record with a link to the wallet transaction
-  *
-  * All 4 writes happen in ONE MongoDB session. Any failure rolls back all of them.
-  */
-
-  async joinContest(userId: string, dto: JoinContestDTO): Promise<JoinContestResult> {
-    // ── Pre-flight checks (outside transaction — fast reads, no locks needed) ──
-    const contest = await Contest.findById(dto.contestId);
-    if (!contest) throw new AppError('Contest not found.', 404);
-    if (contest.status !== ContestStatus.OPEN) {
-      throw new AppError(`Contest is not open for entries. Current status: ${contest.status}.`, 409);
-    }
-
-    if (contest.filledSpots >= contest.totalSpots) {
-      throw new AppError('Contest is full. No spots available.', 409);
-    }
-
-    // Idempotency key — the same key used by wallet service for cross-linking
-    const walletTxnRef = `CONTEST:${dto.contestId}:USER:${userId}`;
-
-    // Check for a prior completed entry (re-entry guard before acquiring session)
-    const existingEntries = await ContestEntry.countDocuments({
-      contestId: new Types.ObjectId(dto.contestId),
-      userId: new Types.ObjectId(userId),
-      status: { $ne: EntryStatus.REFUNDED },
-    });
-
-    if (existingEntries >= contest.maxEntriesPerUser) {
-      throw new AppError(`You have reached the maximum entries (${contest.maxEntriesPerUser}) for this contest.`, 409);
-    }
-
-    // Check for a duplicate wallet transaction key (idempotency for single-entry contests)
-    if (contest.maxEntriesPerUser === 1) {
-      const dupTxn = await Transaction.findOne({ referenceId: walletTxnRef });
-      if (dupTxn) throw new AppError('You have already joined this contest.', 409);
-    }
-
-    // ── Atomic transaction block ───────────────────────────────────────────────
-    return withTransaction(async (session) => {
-      // Step 1: Atomically deduct entry fee + enforce balance ≥ 0 in one op.
-      // The filter includes walletBalance: { $gte: entryFee } — if this returns
-      // null, the DB rejected the update because the balance was insufficient.
-      const updatedUser = await User.findOneAndUpdate(
-        {
-          _id: new Types.ObjectId(userId),
-          isActive: true,
-          walletBalance: { $gte: contest.entryFee },
-        },
-        { $inc: { walletBalance: -contest.entryFee } },
-        { new: true, session }
-      );
-
-      if (!updatedUser) {
-        const exists = await User.exists({ _id: userId }).session(session);
-        if (!exists) throw new AppError('User not found.', 404);
-        throw new AppError(`Insufficient wallet balance. Entry fee: ₹${contest.entryFee}.`, 402)
-      }
-
-      const balanceAfter  = updatedUser.walletBalance;
-      const balanceBefore = balanceAfter + contest.entryFee;
-
-      // Step 2: Write the wallet ledger entry.
-      // const [walletTxn] = await Transaction.create(
-      //   [
-      //     {
-      //       userId: updatedUser._id,
-      //       type: TransactionType.JOIN_CONTEST,
-      //       status: TransactionStatus.SUCCESS,
-      //       amount: contest.entryFee,
-      //       balanceBefore,
-      //       balanceAfter,
-      //       description: `Entry fee for "${contest.name}"`,
-      //       referenceId: walletTxnRef,
-      //       metadata: {
-      //         contestId: dto.contestId,
-      //         contestName: contest.name,
-      //         matchId: contest.matchId,
-      //       },
-      //     },
-      //   ],
-      //   { session }
-      // )
-
-    })
   }
-}
+};
+
+
+export default new ContestService();
