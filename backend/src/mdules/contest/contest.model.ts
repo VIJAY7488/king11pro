@@ -124,7 +124,7 @@ const contestSchema = new Schema<IContest, IContestModel>(
         totalSpots: {
             type: Number,
             default: 0,
-            min: [2, 'Contest must support at least 2 spots'],
+            min: [0, 'Contest must support at least 0 spots'],
         },
 
         filledSpots: {
@@ -169,18 +169,7 @@ const contestSchema = new Schema<IContest, IContestModel>(
             default: null,
         },
     
-        // ── Audit ─────────────────────────────────────────────────────────────────
-        createdBy: {
-            type: Schema.Types.ObjectId,
-            ref: 'User',
-            required: [true, 'Creator (admin) ID is required'],
-        },
     
-        cancelledBy: {
-            type: Schema.Types.ObjectId,
-            ref: 'User',
-            default: null,
-        },
     
         // ── Meta ──────────────────────────────────────────────────────────────────
         description: {
