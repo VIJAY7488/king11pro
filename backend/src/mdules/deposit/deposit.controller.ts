@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import { NextFunction, Request, Response } from 'express';
 import asyncHandler from '../../utils/asyncHandler';
 import depositService from './deposit.service';
 import { DepositStatus } from './deposite.types';
@@ -21,6 +21,19 @@ export class DepositController {
       data: { deposit },
     });
   });
+
+  /** Get /deposits/id - new deposit request by id */
+  getDepositById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const deposit = await depositService.getDepositById(
+        req.params.id as string,
+        req.user!.id
+      );
+      res.status(200).json({ status: 'success', data: { deposit } });
+    } catch (err) {
+      next(err);
+    }
+  };
 
 
   /**
