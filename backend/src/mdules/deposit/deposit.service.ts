@@ -85,6 +85,20 @@ export class DepositService {
   };
 
 
+  // ── User: Get single deposit by ID ────────────────────────────────────────
+  async getDepositById(depositId: string, userId: string): Promise<DepositPublic> {
+    const deposit = await Deposit.findById(depositId);
+    if (!deposit) throw new AppError('Deposit not found.', 404);
+
+    // Ensure user can only fetch their own deposit
+    if (deposit.userId.toString() !== userId) {
+      throw new AppError('Not authorized to view this deposit.', 403);
+    }
+
+    return toDepositPublic(deposit);
+  }
+
+
   // ── Admin: Approve Deposit ─────────────────────────────────────────────────
   /**
    * Single atomic session handles ALL writes:
@@ -164,6 +178,9 @@ export class DepositService {
       };
     });
   };
+
+
+  
 
 
 
