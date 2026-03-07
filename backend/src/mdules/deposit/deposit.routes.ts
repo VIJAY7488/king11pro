@@ -13,11 +13,10 @@ const router = Router();
 router.use(authenticate);
 
 // ── User Routes ───────────────────────────────────────────────────────────────
-router.post(
-  '/deposit',
-  validate(createDepositSchema),
-  depositController.createDeposit
-);
+router.post('/deposit', validate(createDepositSchema), depositController.createDeposit);
+
+// ── NEW: Get single deposit status by ID (for frontend polling) ───────────────
+router.get('/deposits/:id', depositController.getDepositById);
 
 
 
