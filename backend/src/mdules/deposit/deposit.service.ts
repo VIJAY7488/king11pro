@@ -180,9 +180,65 @@ export class DepositService {
   };
 
 
-  
+  // ── Admin: Reject Deposit ──────────────────────────────────────────────────
+  async rejectDeposit(depositId: string, adminId: string, _adminNote?: string): Promise<DepositPublic> {
+    const deposit = await Deposit.findById(depositId);
+    if (!deposit) throw new AppError('Deposit request not found.', 404);
+    if (deposit.status === DepositStatus.APPROVED) throw new AppError('Cannot reject an already approved deposit.', 409);
+    if (deposit.status === DepositStatus.REJECTED) throw new AppError('Deposit is already rejected.', 409);
+
+    const updated = await Deposit.findByIdAndUpdate(
+      depositId,
+      { $set: { status: DepositStatus.REJECTED, reviewedBy: new Types.ObjectId(adminId), reviewedAt: new Date() } },
+      { new: true }
+    );
+    return toDepositPublic(updated!);
+  }
 
 
+
+
+  // ── Admin: List All Deposits ───────────────────────────────────────────────
+  /**
+   * Returns all deposits sorted newest → oldest.
+   * Optionally filter by status (PENDING / APPROVED / REJECTED).
+   * The userId field is populated with user name + mobile for display.
+   */
+  async listDeposits(params: DepositQueryParams): Promise<PaginatedDeposits> {
+    const { status, page = 1, limit = 50 } = params;
+    const filter: Record<string, unknown> = {};
+    if (status) filter['status'] = status;
+
+    const [deposits, total] = await Promise.all([
+      Deposit.find(filter)
+        .populate('userId', 'name mobileNumber')
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .lean(),
+      Deposit.countDocuments(filter),
+    ]);
+
+    return {
+      deposits: deposits.map((d: any) => ({
+        id: d._id.toString(),
+        userId: d.userId?._id?.toString() ?? d.userId?.toString(),
+        userName: d.userId?.name,
+        userMobile: d.userId?.mobileNumber,
+        amount: d.amount,
+        refNumber: d.refNumber,
+        status: d.status,
+        reviewedAt: d.reviewedAt,
+        walletTransactionId: d.walletTransactionId,
+        createdAt: d.createdAt,
+        updatedAt: d.updatedAt,
+      })),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
 
   // ── User: My Deposits ──────────────────────────────────────────────────────
 }
