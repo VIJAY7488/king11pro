@@ -12,9 +12,9 @@ export const createContestSchema = Joi.object({
   matchId: Joi.string().trim().required()
     .messages({ 'string.empty': 'Match ID is required' }),
 
-  name: Joi.string().trim().min(3).max(200).required()
+  name: Joi.string().trim().min(3).max(200).optional()
     .messages({
-      'string.empty': 'Contest name is required',
+      'string.empty': 'Contest name cannot be empty',
       'string.min':   'Contest name must be at least 3 characters',
       'string.max':   'Contest name cannot exceed 200 characters',
     }),
@@ -112,4 +112,24 @@ export const contestQuerySchema = Joi.object({
   contestType: Joi.string().valid(...Object.values(ContestType)).optional(),
   page:        Joi.number().integer().min(1).default(1),
   limit:       Joi.number().integer().min(1).max(100).default(20),
+});
+
+export const prizeTablePreviewSchema = Joi.object({
+  prizePool: Joi.number().positive().required()
+    .messages({
+      'number.base': 'prizePool must be a number',
+      'number.positive': 'prizePool must be greater than 0',
+    }),
+  totalPlayers: Joi.number().integer().min(1).required()
+    .messages({
+      'number.base': 'totalPlayers must be a number',
+      'number.min': 'totalPlayers must be at least 1',
+    }),
+  winnerPercentage: Joi.number().min(1).max(100).required()
+    .messages({
+      'number.base': 'winnerPercentage must be a number',
+      'number.min': 'winnerPercentage must be at least 1',
+      'number.max': 'winnerPercentage cannot exceed 100',
+    }),
+  rank: Joi.number().integer().min(1).optional(),
 });
