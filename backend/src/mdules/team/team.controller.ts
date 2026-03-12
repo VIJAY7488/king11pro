@@ -56,6 +56,38 @@ export class TeamController {
           data:    { team },
         });
     });
+
+    // GET /api/v1/users/my-teams
+    getMyTeams = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+        const teams = await teamService.getMyTeams(req.user!.id);
+        res.status(200).json({ status: 'success', data: { teams } });
+    });
+
+    // PATCH /api/v1/users/team/:id
+    updateTeam = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+        const teamId = String(req.params.id ?? '');
+        validateObjectId(teamId, 'teamId');
+
+        const team = await teamService.updateTeam(req.user!.id, teamId, req.body);
+        res.status(200).json({
+          status: 'success',
+          message: `Team "${team.teamName}" updated successfully.`,
+          data: { team },
+        });
+    });
+
+    // DELETE /api/v1/users/team/:id
+    deleteTeam = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+        const teamId = String(req.params.id ?? '');
+        validateObjectId(teamId, 'teamId');
+
+        const deleted = await teamService.deleteTeam(req.user!.id, teamId);
+        res.status(200).json({
+          status: 'success',
+          message: `Team "${deleted.teamName}" deleted successfully.`,
+          data: deleted,
+        });
+    });
 };
 
 export default new TeamController();

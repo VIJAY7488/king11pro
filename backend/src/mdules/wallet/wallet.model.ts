@@ -4,6 +4,7 @@ import { TransactionStatus, TransactionType } from "./wallet.types";
 
 
 
+
 // ── Interface ─────────────────────────────────────────────────────────────────
 export interface ITransaction extends Document {
     userId: Types.ObjectId;

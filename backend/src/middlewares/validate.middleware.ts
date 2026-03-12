@@ -8,6 +8,13 @@ type ValidationTarget = 'body' | 'query' | 'params';
 
 const validate = 
     (schema: ObjectSchema, target: ValidationTarget = 'body') => (req: Request, res:Response, next: NextFunction): void => {
+
+        // Ensure body exists
+        if (!req[target]) {
+            return next(new AppError('Request body is missing.', 400));
+        }
+
+
         const { error, value } = schema.validate(req[target], {
             abortEarly: false, // collect all errors, not just the first
             stripUnknown: true  // drop undeclared keys
@@ -18,7 +25,17 @@ const validate =
             return next(new AppError(message, 422));
         }
 
-        req[target] = value; // replace with sanitised value
+        // In Express 5, req.query may be exposed via a getter-only property.
+        // Reassigning req.query throws, so we mutate the existing object instead.
+        if (target === 'query' || target === 'params') {
+            const container = req[target] as Record<string, unknown>;
+            for (const key of Object.keys(container)) {
+                delete container[key];
+            }
+            Object.assign(container, value);
+        } else {
+            req[target] = value; // safe for body
+        }
         next();
 };
 

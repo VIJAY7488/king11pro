@@ -10,6 +10,7 @@ const router = Router();
 router.post('/register', validate(registerSchema), usersController.register);
 router.post('/login',    validate(loginSchema),    usersController.login);
 router.post('/refresh',  validate(refreshTokenSchema), usersController.refreshTokens);
+router.post('/logout',   usersController.logout);
 
 
 // ── Protected Routes (JWT required) ──────────────────────────────────────────

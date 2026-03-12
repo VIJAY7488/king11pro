@@ -1,11 +1,14 @@
 import { Request, Response } from 'express';
 import asyncHandler from "../../utils/asyncHandler";
 import usersService from './users.service';
+import AppError from '../../utils/AppError';
+import { authCookieNames, clearAuthCookies, setAuthCookies } from '../../utils/authCookies';
 
 export class UserController {
     // ── Auth ──────────────────────────────────────────────────────────────────
     register = asyncHandler(async (req: Request, res: Response): Promise<void> => {
         const result = await usersService.register(req.body);
+        setAuthCookies(res, result.tokens.accessToken, result.tokens.refreshToken);
 
         res.status(201).json({
             status: 'success',
@@ -16,6 +19,7 @@ export class UserController {
 
     login = asyncHandler(async (req: Request, res: Response): Promise<void> => {
         const result = await usersService.login(req.body);
+        setAuthCookies(res, result.tokens.accessToken, result.tokens.refreshToken);
         res.status(200).json({
             status: 'success',
             message: 'Login successful.',
@@ -24,12 +28,24 @@ export class UserController {
     });
 
     refreshTokens = asyncHandler(async (req: Request, res: Response): Promise<void> => {
-        const { refreshToken } = req.body;
+        const refreshToken = req.body?.refreshToken || req.cookies?.[authCookieNames.refresh];
+        if (!refreshToken) {
+            throw new AppError('Refresh token is required.', 401);
+        }
         const tokens = await usersService.refreshTokens(refreshToken);
+        setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
         res.status(200).json({
             status: 'success',
             message: 'Tokens refreshed.',
             data: { tokens },
+        });
+    });
+
+    logout = asyncHandler(async (_req: Request, res: Response): Promise<void> => {
+        clearAuthCookies(res);
+        res.status(200).json({
+            status: 'success',
+            message: 'Logged out successfully.',
         });
     });
 

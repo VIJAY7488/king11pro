@@ -1,6 +1,6 @@
 import { Router } from "express";
 import authenticate from "../../middlewares/authenticate.middleware";
-import { createTeamSchema } from "./team.validators";
+import { createTeamSchema, updateTeamSchema } from "./team.validators";
 import teamController from "./team.controller";
 import validate from "../../middlewares/validate.middleware";
 
@@ -19,6 +19,9 @@ router.use(authenticate);
  * Body: { contestId, teamName, players[11] }
  */
 router.post('/form-team', validate( createTeamSchema ), teamController.createTeam );
+router.get('/my-teams', teamController.getMyTeams);
+router.patch('/team/:id', validate(updateTeamSchema), teamController.updateTeam);
+router.delete('/team/:id', teamController.deleteTeam);
 
 
 export default router;

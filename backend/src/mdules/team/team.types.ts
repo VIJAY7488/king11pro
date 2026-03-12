@@ -53,6 +53,7 @@ export interface TeamPlayerPublic {
 export interface TeamPublic {
     id: string;
     contestId: string;
+    matchId?: string;
     userId: string;
     teamName: string;
     players: TeamPlayerPublic[];

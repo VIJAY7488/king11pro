@@ -10,6 +10,7 @@ export enum TransactionType {
     REFUND       = 'REFUND',       // contest entry refund
     JOIN_CONTEST = 'JOIN_CONTEST', // contest entry fee
     WIN_PRIZE    = 'WIN_PRIZE',    // prize credited on contest result
+    WITHDRAWAL   = 'WITHDRAWAL',   // user withdrawal request (pending/success/reversed)
 }
 
 

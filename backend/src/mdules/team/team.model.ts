@@ -36,6 +36,17 @@ const playerSchema = new Schema<TeamPlayer> (
             required: [true, 'Player role is required'],
         },
 
+        // Captain / vice-captain designation — stored so leaderboard can apply multipliers
+        captainRole: {
+            type: String,
+            enum: {
+                values: Object.values(CaptainRole),
+                message: `Captain role must be one of: ${Object.values(CaptainRole).join(', ')}`,
+            },
+            default: CaptainRole.NONE,
+            required: true,
+        },
+
         teamName: {
             type: String,
             required: [true, 'Team name is required'],
@@ -53,6 +64,7 @@ const playerSchema = new Schema<TeamPlayer> (
 
 export interface ITeam extends Document {
     contestId: Types.ObjectId;   // which contest this team is entered into
+    matchId: Types.ObjectId;     // which match this team is for
     userId: Types.ObjectId;      // who owns this team
     teamName: string;            // user-chosen display name e.g. "Dream 11"
     players: TeamPlayer[];       // exactly 11 players
@@ -86,6 +98,13 @@ const teamSchema = new Schema<ITeam, ITeamModel>(
             type: Schema.Types.ObjectId,
             ref: 'Contest',
             required: [true, 'Contest ID is required'],
+            index: true,
+        },
+    
+        matchId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Match',
+            required: [true, 'Match ID is required'],
             index: true,
         },
     
@@ -157,61 +176,59 @@ teamSchema.pre('save', async function (this: ITeam) {
 
     // ── Rule: exactly 11 players ──────────────────────────────────────────────
     if (players.length !== 11) {
-        return new Error(`Team must have exactly 11 players. Got ${players.length}.`);
+        throw new Error(`Team must have exactly 11 players. Got ${players.length}.`);
     }
 
     // ── Rule: exactly 1 captain ───────────────────────────────────────────────
     const captains = players.filter(p => p.captainRole === CaptainRole.CAPTAIN);
     if (captains.length !== 1) {
-        return new Error(`Team must have exactly 1 captain. Got ${captains.length}.`);
+        throw new Error(`Team must have exactly 1 captain. Got ${captains.length}.`);
     }
 
     // ── Rule: exactly 1 vice-captain ─────────────────────────────────────────
     const viceCaptains = players.filter(p => p.captainRole === CaptainRole.VICE_CAPTAIN);
     if (viceCaptains.length !== 1) {
-        return new Error(`Team must have exactly 1 vice-captain. Got ${viceCaptains.length}.`);
+        throw new Error(`Team must have exactly 1 vice-captain. Got ${viceCaptains.length}.`);
     }
 
     // ── Rule: a player cannot be both captain and vice-captain ───────────────
     if (captains[0].playerId === viceCaptains[0].playerId) {
-        return new Error('Captain and vice-captain must be different players.');
-    };
+        throw new Error('Captain and vice-captain must be different players.');
+    }
 
     // ── Rule: no duplicate players ────────────────────────────────────────────
     const playerIds = players.map(p => p.playerId);
     if (new Set(playerIds).size !== playerIds.length) {
-        return new Error('Duplicate players found in team. Each player can appear only once.');
+        throw new Error('Duplicate players found in team. Each player can appear only once.');
     }
 
     // ── Rule: at least 1 wicket-keeper ───────────────────────────────────────
     const wks = players.filter(p => p.playerRole === PlayerRole.WICKET_KEEPER);
     if (wks.length < 1) {
-        return new Error('Team must have at least 1 wicket-keeper.');
+        throw new Error('Team must have at least 1 wicket-keeper.');
     }
 
-    // ── Rule: at least 3 bowler ───────────────────────────────────────────────
+    // ── Rule: at least 3 bowlers ──────────────────────────────────────────────
     const bowlers = players.filter(p => p.playerRole === PlayerRole.BOWLER);
     if (bowlers.length < 3) {
-        return new Error('Team must have at least 1 bowler.');
+        throw new Error('Team must have at least 3 bowlers.');
     }
 
-    // ── Rule: at least 4 batsman ──────────────────────────────────────────────
+    // ── Rule: at least 4 batsmen ──────────────────────────────────────────────
     const batsmen = players.filter(p => p.playerRole === PlayerRole.BATSMAN);
     if (batsmen.length < 4) {
-        return new Error('Team must have at least 1 batsman.');
+        throw new Error('Team must have at least 4 batsmen.');
     }
 
     // ── Sync captainId / viceCaptainId ────────────────────────────────────────
     this.captainId     = captains[0].playerId;
     this.viceCaptainId = viceCaptains[0].playerId;
-  
 });
 
 
 // ── Indexes ───────────────────────────────────────────────────────────────────
 
-// One team per user per contest (unique constraint)
-teamSchema.index({ contestId: 1, userId: 1 }, { unique: true });
+// A user can have multiple teams for the same match/contest
 teamSchema.index({ userId: 1, createdAt: -1 });
 teamSchema.index({ contestId: 1, isLocked: 1 });
 
