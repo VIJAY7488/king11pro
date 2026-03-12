@@ -1,8 +1,9 @@
 import mongoose, { ClientSession, Types } from "mongoose";
-import { calcFinancials, Contest, IContest } from "./contest.model";
-import { ContestPublic, ContestQueryParams, ContestStatus, CreateContestDTO, PaginatedContests, PLATFORM_FEE_PERCENT, UpdateContestDTO } from "./contest.types";
+import { calcFinancials, Contest, ContestEntry, IContest } from "./contest.model";
+import { ContestPublic, ContestQueryParams, ContestStatus, CreateContestDTO, JoinedContestPublic, PaginatedContests, PLATFORM_FEE_PERCENT, PrizeDistributionInput, PrizeDistributionResult, UpdateContestDTO } from "./contest.types";
 import AppError from "../../utils/AppError";
 import asyncHandler from "../../utils/asyncHandler";
+import { MatchStatus } from "../match/match.types";
 
 
 // ── Shape Mappers ─────────────────────────────────────────────────────────────
@@ -10,6 +11,7 @@ import asyncHandler from "../../utils/asyncHandler";
 const toContestPublic = (doc: IContest): ContestPublic => ({
   id: (doc._id as Types.ObjectId).toString(),
   matchId: doc.matchId,
+  match: (doc as any).match,
   name: doc.name,
   contestType: doc.contestType,
 
@@ -71,12 +73,130 @@ const ALLOWED_TRANSITIONS: Record<ContestStatus, ContestStatus[]> = {
   [ContestStatus.CANCELLED]: [],
 };
 
+const TOP_PRIZE_PERCENTAGES = [0.22, 0.12, 0.08]; // rank 1..3
+
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
 
 // ═════════════════════════════════════════════════════════════════════════════
 // SERVICE
 // ═════════════════════════════════════════════════════════════════════════════
 
 export class ContestService {
+
+  generatePrizeDistribution(input: PrizeDistributionInput): PrizeDistributionResult {
+    const { prizePool, totalPlayers, winnerPercentage } = input;
+
+    if (!Number.isFinite(prizePool) || prizePool <= 0) {
+      throw new AppError('prizePool must be greater than 0.', 422);
+    }
+    if (!Number.isInteger(totalPlayers) || totalPlayers < 1) {
+      throw new AppError('totalPlayers must be at least 1.', 422);
+    }
+    if (!Number.isFinite(winnerPercentage) || winnerPercentage <= 0 || winnerPercentage > 100) {
+      throw new AppError('winnerPercentage must be between 1 and 100.', 422);
+    }
+
+    // Enforce "at least 25% winners" rule from product requirements.
+    const normalizedWinnerPercentage = Math.max(25, winnerPercentage);
+    const totalWinners = Math.min(totalPlayers, Math.max(1, Math.ceil((totalPlayers * normalizedWinnerPercentage) / 100)));
+    const totalCents = Math.round(prizePool * 100);
+    const rankPrizesCents: number[] = new Array(totalWinners).fill(0);
+
+    if (totalWinners === 1) {
+      rankPrizesCents[0] = totalCents;
+    } else {
+      const topSlots = Math.min(3, totalWinners);
+      let allocatedTop = 0;
+
+      for (let i = 0; i < topSlots; i++) {
+        const cents = Math.round(totalCents * TOP_PRIZE_PERCENTAGES[i]);
+        rankPrizesCents[i] = cents;
+        allocatedTop += cents;
+      }
+
+      let remaining = Math.max(0, totalCents - allocatedTop);
+      const remainingWinners = totalWinners - topSlots;
+
+      if (remainingWinners > 0) {
+        const weights: number[] = [];
+        let weightSum = 0;
+        for (let i = 1; i <= remainingWinners; i++) {
+          const w = 1 / Math.pow(i, 0.65);
+          weights.push(w);
+          weightSum += w;
+        }
+
+        for (let i = 0; i < remainingWinners; i++) {
+          const cents = Math.floor((remaining * weights[i]) / weightSum);
+          rankPrizesCents[topSlots + i] = cents;
+        }
+
+        let distributed = rankPrizesCents.slice(topSlots).reduce((a, b) => a + b, 0);
+        let leftover = remaining - distributed;
+        let idx = topSlots;
+
+        while (leftover > 0) {
+          rankPrizesCents[idx] += 1;
+          leftover -= 1;
+          idx += 1;
+          if (idx >= totalWinners) idx = topSlots;
+        }
+      }
+    }
+
+    const rankPrizes = rankPrizesCents.map((c) => round2(c / 100));
+
+    // Collapse contiguous same-prize ranks into table rows.
+    const distribution: PrizeDistributionResult["distribution"] = [];
+    let startRank = 1;
+    let currentAmount = rankPrizes[0];
+
+    for (let i = 2; i <= rankPrizes.length + 1; i++) {
+      const amount = i <= rankPrizes.length ? rankPrizes[i - 1] : Number.NaN;
+      if (amount !== currentAmount) {
+        const endRank = i - 1;
+        const winnersCount = endRank - startRank + 1;
+        distribution.push({
+          fromRank: startRank,
+          toRank: endRank,
+          winnersCount,
+          amountPerRank: currentAmount,
+          totalAmount: round2(currentAmount * winnersCount),
+        });
+        startRank = i;
+        currentAmount = amount;
+      }
+    }
+
+    return {
+      prizePool: round2(prizePool),
+      totalPlayers,
+      winnerPercentage: round2(winnerPercentage),
+      normalizedWinnerPercentage: round2(normalizedWinnerPercentage),
+      totalWinners,
+      distribution,
+      rankPrizes,
+    };
+  }
+
+  getPotentialEarningByRank(input: PrizeDistributionInput, rank: number): number {
+    if (!Number.isInteger(rank) || rank < 1) return 0;
+    const result = this.generatePrizeDistribution(input);
+    if (rank > result.rankPrizes.length) return 0;
+    return result.rankPrizes[rank - 1];
+  }
+
+  private netPrizePoolFromCollection(grossCollection: number): {
+    grossCollection: number;
+    platformFee: number;
+    distributablePrizePool: number;
+  } {
+    const gross = round2(grossCollection);
+    const platformFee = round2((gross * PLATFORM_FEE_PERCENT) / 100);
+    const distributablePrizePool = round2(Math.max(0, gross - platformFee));
+    return { grossCollection: gross, platformFee, distributablePrizePool };
+  }
 
   // ── ADMIN: Create Contest ──────────────────────────────────────────────────
   /**
@@ -105,10 +225,16 @@ export class ContestService {
         422
       );
     }
+    // Fetch match for auto-name and verification
+    const { Match } = await import('../match/match.model');
+    const match = await Match.findById(dto.matchId);
+    if (!match) throw new AppError('Match not found.', 404);
+
+    const contestName = dto.name || `${match.team1Name} vs ${match.team2Name}`;
 
     const contest = await Contest.create({
       matchId: dto.matchId,
-      name: dto.name,
+      name: contestName,
       contestType: dto.contestType,
       entryFee: dto.entryFee,
       prizePool: dto.prizePool,
@@ -152,6 +278,17 @@ export class ContestService {
       if (!allowed.includes(dto.status)) {
         throw new AppError(`Cannot move from ${contest.status} → ${dto.status}. ` +`Allowed: ${allowed.join(', ') || 'none'}.`, 422);
       }
+    }
+
+    // Completing a contest must finalize scores and trigger winnings payout.
+    // This path is idempotent at wallet layer (WIN:<contestId>:<teamId>:<userId>).
+    if (dto.status === ContestStatus.COMPLETED) {
+      const { default: scoreService } = await import('../scores/score.service');
+      await scoreService.confirmMatchScores(String(contest.matchId));
+
+      const refreshed = await Contest.findById(contestId);
+      if (!refreshed) throw new AppError('Contest not found after completion.', 404);
+      return toContestPublic(refreshed);
     }
 
     // Build the update — pre-save hook recalculates financials if needed
@@ -201,7 +338,24 @@ export class ContestService {
       Contest.countDocuments(filter),
     ]);
 
-    return { contests: contests.map(toContestPublic), total, page, limit,
+    // Fetch matches for these contests
+    const matchIds = [...new Set(contests.map((c) => c.matchId))];
+    const validMatchIds = matchIds.filter((id) => Types.ObjectId.isValid(id));
+    
+    const { Match } = await import('../match/match.model');
+    const matches = await Match.find({ _id: { $in: validMatchIds } }).lean();
+    const matchMap = new Map(matches.map((m: any) => [m._id.toString(), m]));
+
+    // Attach match objects
+    const populatedContests = contests.map((c: any) => {
+      const matchDoc = matchMap.get(c.matchId);
+      if (matchDoc) {
+        c.match = { ...matchDoc, id: matchDoc._id.toString() };
+      }
+      return c;
+    });
+
+    return { contests: populatedContests.map(toContestPublic), total, page, limit,
              totalPages: Math.ceil(total / limit) };
   }
 
@@ -211,8 +365,192 @@ export class ContestService {
     return toContestPublic(contest);
   }
 
+  async getContestPrizeDistribution(contestId: string, winnerPercentage = 25): Promise<PrizeDistributionResult> {
+    const contest = await Contest.findById(contestId);
+    if (!contest) throw new AppError('Contest not found.', 404);
+
+    const totalPlayers = await ContestEntry.countDocuments({ contestId: new Types.ObjectId(contestId) });
+    if (totalPlayers < 1) {
+      return {
+        prizePool: 0,
+        grossCollection: 0,
+        platformFeePercent: PLATFORM_FEE_PERCENT,
+        platformFee: 0,
+        totalPlayers: 0,
+        winnerPercentage: round2(winnerPercentage),
+        normalizedWinnerPercentage: round2(Math.max(25, winnerPercentage)),
+        totalWinners: 0,
+        distribution: [],
+        rankPrizes: [],
+      };
+    }
+
+    const grossCollection = contest.entryFee * totalPlayers;
+    const { distributablePrizePool, platformFee } = this.netPrizePoolFromCollection(grossCollection);
+    const result = this.generatePrizeDistribution({
+      prizePool: distributablePrizePool,
+      totalPlayers,
+      winnerPercentage,
+    });
+
+    return {
+      ...result,
+      grossCollection: round2(grossCollection),
+      platformFeePercent: PLATFORM_FEE_PERCENT,
+      platformFee,
+    };
+  }
+
+  async getMyJoinedContests(userId: string): Promise<JoinedContestPublic[]> {
+    const { ContestEntry } = await import('./contest.model');
+    const entries = await ContestEntry.find({ userId: new Types.ObjectId(userId) })
+      .populate('contestId')
+      .populate('teamId')
+      .sort({ joinedAt: -1 });
+
+    const rows = entries.filter((e: any) => e.contestId && e.teamId);
+    if (!rows.length) return [];
+
+    const matchIds = [...new Set(rows.map((e: any) => e.contestId.matchId))];
+    const validMatchIds = matchIds.filter((id: string) => Types.ObjectId.isValid(id));
+    const { Match } = await import('../match/match.model');
+    const matches = await Match.find({ _id: { $in: validMatchIds } }).lean();
+    const matchMap = new Map(matches.map((m: any) => [m._id.toString(), m]));
+
+    return rows.map((entry: any) => {
+      const contest = entry.contestId as IContest;
+      const team = entry.teamId as any;
+      const match = matchMap.get(contest.matchId);
+      const contestPublic = toContestPublic(contest);
+
+      return {
+        entryId: entry._id.toString(),
+        joinedAt: entry.joinedAt,
+        livePoints: entry.livePoints ?? 0,
+        liveRank: entry.liveRank ?? 0,
+        finalPoints: entry.finalPoints ?? 0,
+        finalRank: entry.finalRank ?? 0,
+        contest: contestPublic,
+        team: {
+          id: team._id?.toString() ?? team.id,
+          contestId: team.contestId?.toString(),
+          matchId: team.matchId?.toString(),
+          userId: team.userId?.toString(),
+          teamName: team.teamName,
+          players: team.players ?? [],
+          captainId: team.captainId ?? null,
+          viceCaptainId: team.viceCaptainId ?? null,
+          isLocked: team.isLocked ?? false,
+          createdAt: team.createdAt,
+          updatedAt: team.updatedAt,
+        },
+        match: match ? { ...match, id: match._id.toString() } : undefined,
+      };
+    });
+  }
+
+
+  // ── User: Join Contest ────────────────────────────────────────────────────
+  async joinContest(userId: string, contestId: string, teamId: string) {
+    const { Team } = await import('../team/team.model');
+    const { default: User } = await import('../user/users.model');
+    const { ContestEntry } = await import('./contest.model');
+    const { default: walletService } = await import('../wallet/wallet.service');
+
+    return withTransaction(async (session) => {
+      const contestObjectId = new Types.ObjectId(contestId);
+      const userObjectId = new Types.ObjectId(userId);
+      const teamObjectId = new Types.ObjectId(teamId);
+
+      const contest = await Contest.findById(contestId).session(session);
+      if (!contest) throw new AppError('Contest not found.', 404);
+      if (contest.status !== ContestStatus.OPEN)
+        throw new AppError('Contest is not open for joining.', 409);
+      if (contest.filledSpots >= contest.totalSpots)
+        throw new AppError('Contest is full.', 409);
+
+      const { Match } = await import('../match/match.model');
+      const match = await Match.findById(contest.matchId).session(session);
+      if (!match) throw new AppError('Match not found for this contest.', 404);
+      if (match.status !== MatchStatus.UPCOMING) {
+        throw new AppError('Contest is locked because match is no longer UPCOMING.', 409);
+      }
+
+      const team = await Team.findById(teamId).session(session);
+      if (!team) throw new AppError('Team not found.', 404);
+      if (team.userId.toString() !== userId)
+        throw new AppError('Team does not belong to you.', 403);
+      if (team.contestId.toString() !== contestId)
+        throw new AppError('This team belongs to a different contest.', 409);
+
+      const user = await User.findById(userId).session(session);
+      if (!user) throw new AppError('User not found.', 404);
+
+      const [existingTeamEntry, userEntryCount] = await Promise.all([
+        ContestEntry.findOne({
+          contestId: contestObjectId,
+          userId: userObjectId,
+          teamId: teamObjectId,
+        }).session(session),
+        ContestEntry.countDocuments({
+          contestId: contestObjectId,
+          userId: userObjectId,
+        }).session(session),
+      ]);
+
+      if (existingTeamEntry) {
+        throw new AppError('You already joined this contest with this team.', 409);
+      }
+
+      if (userEntryCount >= contest.maxEntriesPerUser) {
+        throw new AppError(
+          `Entry limit reached. You can join this contest with at most ${contest.maxEntriesPerUser} team(s).`,
+          409
+        );
+      }
+
+      // Deduct entry fee using proper Wallet Service to create transaction logs
+      const walletResult = await walletService.deductForContest(
+        userId,
+        contestId,
+        teamId,
+        contest.entryFee,
+        session
+      );
+
+      // Increment filledSpots; flip to FULL if all spots taken
+      const newFilled = contest.filledSpots + 1;
+      const newStatus = newFilled >= contest.totalSpots
+        ? ContestStatus.FULL : ContestStatus.OPEN;
+      await Contest.findByIdAndUpdate(contestId, {
+        $inc: { filledSpots: 1 },
+        $set: { status: newStatus },
+      }, { session });
+
+      // CREATE ContestEntry to track user participation for leaderboard
+      await ContestEntry.create(
+        [{
+          contestId: contestObjectId,
+          userId: userObjectId,
+          teamId: teamObjectId,
+          entryFee: contest.entryFee,
+          livePoints: 0,
+          liveRank: 0,
+          finalPoints: 0,
+          finalRank: 0,
+          joinedAt: new Date(),
+        }],
+        { session }
+      );
+
+      return {
+        message: 'Successfully joined the contest!',
+        entryFee: contest.entryFee,
+        newBalance: walletResult.currentBalance,
+      };
+    });
+  }
 
 };
-
 
 export default new ContestService();
