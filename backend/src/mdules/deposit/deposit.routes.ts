@@ -29,7 +29,8 @@ router.get('/deposits/:id', depositController.getDepositById);
  *
  * This is the single endpoint that changes a deposit from PENDING → APPROVED/REJECTED.
  */
-router.patch('/admin/:id/review', validate(reviewDepositSchema), requireAdmin, depositController.reviewDeposit);
+router.get('/deposits/admin/all', requireAdmin, depositController.listDeposits);
+router.patch('/deposits/admin/:id/review', validate(reviewDepositSchema), requireAdmin, depositController.reviewDeposit);
 
 
 export default router;
