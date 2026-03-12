@@ -258,7 +258,117 @@ contestSchema.statics.countActiveByMatch = function (matchId: string): Promise<n
 
 
 // ═════════════════════════════════════════════════════════════════════════════
-// MODELS
+// CONTEST MODEL
 // ═════════════════════════════════════════════════════════════════════════════
 
-export const Contest      = model<IContest,      IContestModel>     ('Contest',      contestSchema);
+export const Contest = model<IContest, IContestModel>('Contest', contestSchema);
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CONTEST ENTRY
+// One row per user-team-contest combination.
+// Created when a user joins a contest with a team.
+// livePoints / liveRank are updated per delivery by score.service.
+// finalPoints / finalRank are copied from live values at confirmMatchScores().
+// ═════════════════════════════════════════════════════════════════════════════
+
+export interface IContestEntry extends Document {
+  contestId:   Types.ObjectId;
+  userId:      Types.ObjectId;
+  teamId:      Types.ObjectId;
+  /** Snapshot of the entry fee paid — preserved for accounting even if contest changes */
+  entryFee:    number;
+  /** Live fantasy points total for this team — updated after every delivery */
+  livePoints:  number;
+  /** Current rank within the contest — updated after every delivery */
+  liveRank:    number;
+  /** Copied from livePoints when admin calls confirmMatchScores */
+  finalPoints: number;
+  /** Copied from liveRank when admin calls confirmMatchScores */
+  finalRank:   number;
+  joinedAt:    Date;
+  createdAt:   Date;
+  updatedAt:   Date;
+}
+
+export interface IContestEntryModel extends Model<IContestEntry> {
+  findByContest(contestId: Types.ObjectId): Promise<IContestEntry[]>;
+  findByUser(userId: Types.ObjectId): Promise<IContestEntry[]>;
+}
+
+const contestEntrySchema = new Schema<IContestEntry, IContestEntryModel>(
+  {
+    contestId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Contest',
+      required: [true, 'Contest ID is required'],
+      index: true,
+    },
+
+    userId: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      required: [true, 'User ID is required'],
+      index: true,
+    },
+
+    teamId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Team',
+      required: [true, 'Team ID is required'],
+    },
+
+    entryFee: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+
+    // Live values — updated per delivery
+    livePoints: { type: Number, default: 0 },
+    liveRank:   { type: Number, default: 0 },
+
+    // Final values — locked at confirmMatchScores
+    finalPoints: { type: Number, default: 0 },
+    finalRank:   { type: Number, default: 0 },
+
+    joinedAt: { type: Date, default: Date.now },
+  },
+  {
+    timestamps: true,
+    versionKey: false,
+    toJSON: { virtuals: true },
+  }
+);
+
+// ── Indexes ───────────────────────────────────────────────────────────────────
+
+// Prevent duplicate join with the exact same team in a contest.
+// Multiple teams per user are allowed and enforced by maxEntriesPerUser in service.
+contestEntrySchema.index({ contestId: 1, userId: 1, teamId: 1 }, { unique: true });
+// Leaderboard sort: fastest rank lookup
+contestEntrySchema.index({ contestId: 1, livePoints: -1, joinedAt: 1 });
+contestEntrySchema.index({ contestId: 1, finalPoints: -1 });
+// User's own contest history
+contestEntrySchema.index({ userId: 1, joinedAt: -1 });
+// Leaderboard update: find entry by teamId
+contestEntrySchema.index({ teamId: 1 });
+
+// ── Statics ───────────────────────────────────────────────────────────────────
+
+contestEntrySchema.statics.findByContest = function (
+  contestId: Types.ObjectId
+): Promise<IContestEntry[]> {
+  return this.find({ contestId }).sort({ livePoints: -1, joinedAt: 1 });
+};
+
+contestEntrySchema.statics.findByUser = function (
+  userId: Types.ObjectId
+): Promise<IContestEntry[]> {
+  return this.find({ userId }).sort({ joinedAt: -1 });
+};
+
+export const ContestEntry = model<IContestEntry, IContestEntryModel>(
+  'ContestEntry',
+  contestEntrySchema
+);
