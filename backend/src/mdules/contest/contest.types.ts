@@ -18,13 +18,13 @@ export enum ContestType {
 
 // ── Platform Fee Config ───────────────────────────────────────────────────────
 // Exported so service and model share the same constant
-export const PLATFORM_FEE_PERCENT = 20; // 20% of prizePool is kept by platform
+export const PLATFORM_FEE_PERCENT = 20; // 20% of gross entry collection is kept by platform
 
 // ── Request DTOs (admin only) ─────────────────────────────────────────────────
 
 export interface CreateContestDTO {
   matchId: string;
-  name: string;
+  name?: string;
   contestType: ContestType;
   entryFee: number;             // rupees per entry — admin sets this
   prizePool: number;            // net prize pool to distribute — admin sets this
@@ -78,6 +78,7 @@ export interface ContestFinancials {
 export interface ContestPublic {
   id: string;
   matchId: string;
+  match?: any;
   name: string;
   contestType: ContestType;
 
@@ -113,4 +114,43 @@ export interface PaginatedContests {
   page: number;
   limit: number;
   totalPages: number;
+}
+
+export interface JoinedContestPublic {
+  entryId: string;
+  joinedAt: Date;
+  livePoints: number;
+  liveRank: number;
+  finalPoints: number;
+  finalRank: number;
+  contest: ContestPublic;
+  team: any;
+  match?: any;
+}
+
+export interface PrizeDistributionInput {
+  prizePool: number;
+  totalPlayers: number;
+  winnerPercentage: number;
+}
+
+export interface PrizeDistributionRow {
+  fromRank: number;
+  toRank: number;
+  winnersCount: number;
+  amountPerRank: number;
+  totalAmount: number;
+}
+
+export interface PrizeDistributionResult {
+  prizePool: number;
+  grossCollection?: number;
+  platformFeePercent?: number;
+  platformFee?: number;
+  totalPlayers: number;
+  winnerPercentage: number;
+  normalizedWinnerPercentage: number;
+  totalWinners: number;
+  distribution: PrizeDistributionRow[];
+  rankPrizes: number[];
 }
