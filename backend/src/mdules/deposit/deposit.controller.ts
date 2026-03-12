@@ -51,13 +51,12 @@ export class DepositController {
    */
 
   reviewDeposit = asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { status } = req.body;
+    const { status, adminNote } = req.body;
     const adminId = req.user!.id;
     const depositId = req.params.id as string;
 
     if (status === DepositStatus.APPROVED) {
       const result = await depositService.approveDeposit(depositId, adminId);
-
       res.status(200).json({
         status: 'success',
         message: `Deposit approved. ₹${result.deposit.amount} credited to user wallet.`,
@@ -67,8 +66,23 @@ export class DepositController {
           walletTransactionId: result.walletTransactionId,
         },
       });
-    } 
+    } else if (status === DepositStatus.REJECTED) {
+      const deposit = await depositService.rejectDeposit(depositId, adminId, adminNote);
+      res.status(200).json({
+        status: 'success',
+        message: 'Deposit rejected. No wallet changes made.',
+        data: { deposit },
+      });
+    } else {
+      res.status(400).json({ status: 'error', message: 'Invalid status. Use APPROVED or REJECTED.' });
+    }
   })
+
+  /** GET /deposits/admin/all — admin list with populated user info */
+  listDeposits = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const result = await depositService.listDeposits(req.query as any);
+    res.status(200).json({ status: 'success', data: result });
+  });
 }
 
 export default new DepositController();
