@@ -124,7 +124,7 @@ export class MatchService {
     }
 
     // When match is marked COMPLETED, auto-finalize scores/contests/payouts.
-    if (previousStatus !== MatchStatus.COMPLETED && match.status === MatchStatus.COMPLETED) {
+    if (dto.status === MatchStatus.COMPLETED) {
       const { default: scoreService } = await import('../scores/score.service');
       await scoreService.confirmMatchScores(matchId);
     }

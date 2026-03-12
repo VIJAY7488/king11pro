@@ -305,7 +305,6 @@ export class ContestService {
 
     // Auto-stamp lifecycle timestamps on status change
     if (dto.status === ContestStatus.CLOSED    && !dto.closedAt)    updateFields.closedAt    = new Date();
-    if (dto.status === ContestStatus.COMPLETED && !dto.completedAt) updateFields.completedAt = new Date();
 
     if (Object.keys(updateFields).length === 0) {
       throw new AppError('No valid update fields provided.', 400);

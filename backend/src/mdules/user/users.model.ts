@@ -88,7 +88,7 @@ const userSchema = new Schema<IUser>({
     versionKey: false,          // removes __v field
     toJSON: {
       virtuals: true,
-      transform(_doc, ret) {
+      transform(_doc, ret: any) {
         delete ret.password;    // extra safety — never leak hash via toJSON
         return ret;
       },
